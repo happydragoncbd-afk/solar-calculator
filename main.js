@@ -249,65 +249,85 @@ function epcRequest(options, auth, redirects = 0) {
 ipcMain.handle('fetch-epc', async (event, { postcode }) => {
   const clean = postcode.replace(/\s+/g, '').toUpperCase();
 
-  return new Promise((resolve) => {
+  const apiGet = (urlPath) => new Promise((resolve, reject) => {
     const req = https.request({
       hostname: 'api.get-energy-performance-data.communities.gov.uk',
-      path:     `/api/domestic/search?postcode=${encodeURIComponent(clean)}&page_size=10`,
+      path:     urlPath,
       method:   'GET',
       headers:  { Authorization: `Bearer ${EPC_API_KEY}`, Accept: 'application/json' }
     }, (res) => {
-      if (res.statusCode === 401) { resolve({ rows: [], error: 'Invalid EPC API token.' }); return; }
-      if (res.statusCode === 404) { resolve({ rows: [] }); return; }
-
       let data = '';
       res.on('data', c => data += c);
       res.on('end', () => {
-        if (res.statusCode !== 200) {
-          resolve({ rows: [], error: `EPC API returned status ${res.statusCode}` });
-          return;
+        if (res.statusCode === 200) {
+          try { resolve(JSON.parse(data)); } catch { reject(new Error('Invalid JSON')); }
+        } else if (res.statusCode === 404) {
+          resolve(null);
+        } else if (res.statusCode === 401) {
+          reject(new Error('Invalid EPC API token.'));
+        } else {
+          reject(new Error(`EPC API status ${res.statusCode}`));
         }
-        try {
-          const json = JSON.parse(data);
-          // Write raw first record to file so field names can be confirmed
-          try {
-            const debugPath = path.join(app.getPath('userData'), 'epc-raw-debug.json');
-            fs.writeFileSync(debugPath, JSON.stringify(json.data && json.data[0], null, 2));
-          } catch (_) {}
-          // Map new MHCLG API camelCase fields to kebab-case names the heat loss engine expects
-          const rows = (json.data || []).map(r => ({
-            'address1':                  r.addressLine1 || '',
-            'address2':                  r.addressLine2 || '',
-            'address3':                  [r.addressLine3, r.addressLine4].filter(Boolean).join(', '),
-            'posttown':                  r.postTown || '',
-            'postcode':                  r.postcode || '',
-            'inspection-date':           r.inspectionDate || '',
-            'current-energy-rating':     r.currentEnergyEfficiencyBand || '',
-            'current-energy-efficiency': String(r.currentEnergyEfficiencyRating ?? ''),
-            'potential-energy-rating':   r.potentialEnergyEfficiencyBand || '',
-            'total-floor-area':          String(r.totalFloorArea ?? ''),
-            'property-type':             r.propertyType || '',
-            'built-form':                r.builtForm || '',
-            'construction-age-band':     r.constructionAgeBand || '',
-            'number-habitable-rooms':    String(r.habitableRooms ?? r.numberHabitableRooms ?? ''),
-            'flat-storey-count':         String(r.flatStoreyCount ?? ''),
-            'floor-height':              String(r.floorHeight ?? ''),
-            'mechanical-ventilation':    r.mechanicalVentilation || '',
-            'number-open-fireplaces':    String(r.openFireplacesCount ?? r.numberOpenFireplaces ?? ''),
-            'multi-glaze-proportion':    String(r.multiGlazedProportion ?? r.glazedProportion ?? ''),
-            'glazed-type':               r.glazedType || '',
-            'glazed-area':               r.glazedArea || '',
-            'walls-description':         r.wallsDescription || r.wallsEnvDescription || '',
-            'roof-description':          r.roofDescription || r.roofEnvDescription || '',
-            'floor-description':         r.floorDescription || r.floorEnvDescription || '',
-            'windows-description':       r.windowsDescription || r.windowsEnvDescription || '',
-          }));
-          resolve({ rows, _raw: json.data && json.data[0] });
-        } catch { resolve({ rows: [], error: 'Invalid EPC API response' }); }
       });
     });
-
-    req.on('error', err => resolve({ rows: [], error: `Network error: ${err.message}` }));
-    req.setTimeout(15000, () => { req.destroy(); resolve({ rows: [], error: 'Request timed out.' }); });
+    req.on('error', reject);
+    req.setTimeout(15000, () => { req.destroy(); reject(new Error('Request timed out.')); });
     req.end();
   });
+
+  try {
+    // Step 1: search by postcode for summary list
+    const searchJson = await apiGet(`/api/domestic/search?postcode=${encodeURIComponent(clean)}&page_size=10`);
+    const summaries = (searchJson && searchJson.data) || [];
+    if (summaries.length === 0) return { rows: [] };
+
+    // Step 2: fetch full certificate for each result in parallel
+    const details = await Promise.all(
+      summaries.map(s =>
+        apiGet(`/api/domestic/${encodeURIComponent(s.certificateNumber)}`).catch(() => null)
+      )
+    );
+
+    // Debug: write merged first record so field names can be inspected
+    try {
+      const debugPath = path.join(app.getPath('userData'), 'epc-raw-debug.json');
+      fs.writeFileSync(debugPath, JSON.stringify({ summary: summaries[0], detail: details[0] }, null, 2));
+    } catch (_) {}
+
+    // Merge: detail fields take priority; fall back to summary for address/rating
+    const rows = summaries.map((s, i) => {
+      const d = details[i] || {};
+      return {
+        'address1':                  s.addressLine1 || '',
+        'address2':                  s.addressLine2 || '',
+        'address3':                  [s.addressLine3, s.addressLine4].filter(Boolean).join(', '),
+        'posttown':                  s.postTown || '',
+        'postcode':                  s.postcode || '',
+        'inspection-date':           d.inspectionDate || s.registrationDate || '',
+        'current-energy-rating':     s.currentEnergyEfficiencyBand || d.currentEnergyEfficiencyBand || '',
+        'current-energy-efficiency': String(d.currentEnergyEfficiency ?? d.currentEnergyEfficiencyRating ?? ''),
+        'potential-energy-rating':   d.potentialEnergyEfficiencyBand || '',
+        'total-floor-area':          String(d.totalFloorArea ?? ''),
+        'property-type':             d.propertyType || '',
+        'built-form':                d.builtForm || '',
+        'construction-age-band':     d.constructionAgeBand || '',
+        'number-habitable-rooms':    String(d.numberHabitableRooms ?? d.habitableRooms ?? ''),
+        'flat-storey-count':         String(d.flatStoreyCount ?? ''),
+        'floor-height':              String(d.floorHeight ?? ''),
+        'mechanical-ventilation':    d.mechanicalVentilation || '',
+        'number-open-fireplaces':    String(d.numberOpenFireplaces ?? ''),
+        'multi-glaze-proportion':    String(d.multiGlazeProportion ?? ''),
+        'glazed-type':               d.glazedType || '',
+        'glazed-area':               d.glazedArea || '',
+        'walls-description':         d.wallsDescription || '',
+        'roof-description':          d.roofDescription || '',
+        'floor-description':         d.floorDescription || '',
+        'windows-description':       d.windowsDescription || '',
+      };
+    });
+
+    return { rows, _raw: details[0] };
+  } catch (e) {
+    return { rows: [], error: e.message };
+  }
 });
