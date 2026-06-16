@@ -2,7 +2,7 @@
 
 'use strict';
 
-// ── State ────────────────────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────────────
 let config = {};
 let epcRecords = [];
 let selectedRecord = null;
@@ -23,12 +23,10 @@ function setAlert(id, type, message) {
 async function init() {
   config = await electronAPI.getConfig();
   updateSettingsStatus();
-
-  // If already configured, collapse settings
   if (config.email && config.apiKey) {
     $('settingsCard').classList.add('collapsed');
+    $('settingsToggle').textContent = 'Edit';
   }
-
   bindEvents();
 }
 
@@ -45,16 +43,13 @@ function updateSettingsStatus() {
 
 // ── Events ────────────────────────────────────────────────────────────────────
 function bindEvents() {
-  // Settings toggle
   $('settingsToggle').addEventListener('click', () => {
-    const card = $('settingsCard');
-    const isCollapsed = card.classList.toggle('collapsed');
-    $('settingsToggle').textContent = isCollapsed ? 'Edit' : 'Hide';
+    const collapsed = $('settingsCard').classList.toggle('collapsed');
+    $('settingsToggle').textContent = collapsed ? 'Edit' : 'Hide';
   });
 
-  // Pre-fill saved credentials
   if (config.email) $('apiEmail').value = config.email;
-  if (config.apiKey) $('apiKey').value = config.apiKey;
+  if (config.apiKey) $('apiKey').value  = config.apiKey;
 
   $('saveSettingsBtn').addEventListener('click', saveSettings);
   $('searchBtn').addEventListener('click', doSearch);
@@ -65,29 +60,20 @@ function bindEvents() {
     e.preventDefault();
     electronAPI.openExternal('https://epc.opendatacommunities.org/');
   });
-
-  $('postcodeInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') doSearch();
-  });
+  $('postcodeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 async function saveSettings() {
-  const email = $('apiEmail').value.trim();
+  const email  = $('apiEmail').value.trim();
   const apiKey = $('apiKey').value.trim();
-
-  if (!email || !apiKey) {
-    alert('Please enter both your email and API key.');
-    return;
-  }
+  if (!email || !apiKey) { alert('Please enter both your email and API key.'); return; }
 
   config = { ...config, email, apiKey };
   await electronAPI.saveConfig(config);
   updateSettingsStatus();
-
   show('settingsSaved');
   setTimeout(() => hide('settingsSaved'), 2000);
-
   $('settingsCard').classList.add('collapsed');
   $('settingsToggle').textContent = 'Edit';
 }
@@ -105,7 +91,6 @@ async function doSearch() {
     return;
   }
 
-  // Loading state
   $('searchBtn').disabled = true;
   setText('searchBtnText', 'Searching…');
   show('searchSpinner');
@@ -115,16 +100,11 @@ async function doSearch() {
   hide('resultsCard');
 
   try {
-    const data = await electronAPI.fetchEPC({
-      postcode,
-      email: config.email,
-      apiKey: config.apiKey
-    });
-
+    const data = await electronAPI.fetchEPC({ postcode, email: config.email, apiKey: config.apiKey });
     const rows = data.rows || [];
 
     if (rows.length === 0) {
-      setAlert('searchAlert', 'error', `No EPC records found for postcode "${postcode.toUpperCase()}". The property may not have a current EPC.`);
+      setAlert('searchAlert', 'error', `No EPC records found for "${postcode.toUpperCase()}". The property may not have a current EPC.`);
       show('searchAlert');
       return;
     }
@@ -134,7 +114,6 @@ async function doSearch() {
     show('epcCard');
     $('epcCount').textContent = `${rows.length} record${rows.length > 1 ? 's' : ''} found`;
     onPropertyChange();
-
   } catch (err) {
     setAlert('searchAlert', 'error', err.message);
     show('searchAlert');
@@ -149,41 +128,44 @@ async function doSearch() {
 function renderPropertySelect(records) {
   const sel = $('propertySelect');
   sel.innerHTML = '';
-
   records.forEach((r, i) => {
     const opt = document.createElement('option');
     opt.value = i;
     const addr = [r['address1'], r['address2'], r['address3']].filter(Boolean).join(', ');
-    const date = r['inspection-date'] || '';
-    opt.textContent = `${addr} (EPC: ${date})`;
+    opt.textContent = `${addr} (EPC: ${r['inspection-date'] || '?'})`;
     sel.appendChild(opt);
   });
-
-  const wrap = $('propertySelectWrap');
-  wrap.style.display = records.length > 1 ? 'flex' : 'none';
+  $('propertySelectWrap').style.display = records.length > 1 ? 'flex' : 'none';
 }
 
 function onPropertyChange() {
   const idx = parseInt($('propertySelect').value) || 0;
   selectedRecord = epcRecords[idx];
   renderEPCSummary(selectedRecord);
+
+  // Auto-calculate ACH from age band and populate the field
+  const autoACH = HeatLoss.calcBaselineACH(
+    selectedRecord['construction-age-band'],
+    selectedRecord['mechanical-ventilation'],
+    selectedRecord['number-open-fireplaces']
+  );
+  $('achInput').value = autoACH.toFixed(2);
+  $('achHint').textContent = `Auto-estimated from ${formatAgeBand(selectedRecord['construction-age-band'])} age band — adjust if known`;
+
   show('calcCard');
   hide('resultsCard');
 }
 
-// ── EPC Summary Cards ─────────────────────────────────────────────────────────
-function ratingColor(r) {
-  return { A:'rating-a', B:'rating-b', C:'rating-c', D:'rating-d', E:'rating-e', F:'rating-f', G:'rating-g' }[r] || '';
-}
+// ── EPC Summary ───────────────────────────────────────────────────────────────
+const RATING_CLASS = { A:'rating-a', B:'rating-b', C:'rating-c', D:'rating-d', E:'rating-e', F:'rating-f', G:'rating-g' };
 
 function renderEPCSummary(r) {
   const rating = (r['current-energy-rating'] || '?').toUpperCase();
-  const grid = $('epcStatGrid');
 
-  grid.innerHTML = `
+  $('epcStatGrid').innerHTML = `
     <div class="epc-stat">
       <div class="epc-stat-label">EPC Rating</div>
-      <div class="epc-rating ${ratingColor(rating)}">${rating}</div>
+      <div class="epc-rating ${RATING_CLASS[rating] || ''}">${rating}</div>
     </div>
     <div class="epc-stat">
       <div class="epc-stat-label">Floor Area</div>
@@ -207,63 +189,76 @@ function renderEPCSummary(r) {
     </div>
   `;
 
-  const detail = $('epcDetailRow');
-  detail.innerHTML = `
+  $('epcDetailRow').innerHTML = `
     <div class="epc-detail-item"><strong>Walls</strong>${r['walls-description'] || 'Not recorded'}</div>
     <div class="epc-detail-item"><strong>Roof</strong>${r['roof-description'] || 'Not recorded'}</div>
     <div class="epc-detail-item"><strong>Floor</strong>${r['floor-description'] || 'Not recorded'}</div>
-    <div class="epc-detail-item"><strong>Windows</strong>${r['windows-description'] || 'Not recorded'}</div>
+    <div class="epc-detail-item"><strong>Windows</strong>${r['windows-description'] || '?'}${r['multi-glaze-proportion'] ? ` — ${r['multi-glaze-proportion']}% double glazed` : ''}</div>
   `;
 }
 
 function formatAgeBand(raw) {
   if (!raw) return '?';
-  // EPC age bands come as "England and Wales: 1967-1975, Scotland: N/A"
-  const match = raw.match(/(\d{4}(?:-\d{4})?)/);
-  if (match) return match[1];
-  if (raw.toLowerCase().includes('before 1900') || raw.includes('1900')) return 'Pre-1900';
+  const m = raw.match(/(\d{4}(?:[-–]\d{4})?)/);
+  if (m) return m[1];
+  if (raw.toLowerCase().includes('before 1900')) return 'Pre-1900';
   return raw.length > 20 ? raw.substring(0, 20) + '…' : raw;
 }
 
-// ── Heat Loss Calculation ─────────────────────────────────────────────────────
+// ── Calculation ───────────────────────────────────────────────────────────────
 function doCalculate() {
   if (!selectedRecord) return;
 
-  const outdoorTemp = parseFloat($('outdoorTemp').value) || -3;
-  const indoorTemp  = parseFloat($('indoorTemp').value)  || 21;
-  const ach         = parseFloat($('achInput').value)    || 0.5;
+  const result = HeatLoss.calculate(selectedRecord, {
+    outdoorTemp: parseFloat($('outdoorTemp').value) || -3,
+    indoorTemp:  parseFloat($('indoorTemp').value)  || 21,
+    ach:         parseFloat($('achInput').value)    || 0.5
+  });
 
-  const result = HeatLoss.calculate(selectedRecord, { outdoorTemp, indoorTemp, ach });
   renderResults(result);
   show('resultsCard');
-
-  // Smooth scroll to results
   $('resultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderResults(r) {
-  // Hero values
   setText('resHeatLoss', `${r.heatLossKW.toFixed(1)} kW`);
-  setText('resHPSize', `${r.hpSizeKW} kW`);
+  setText('resHPSize',   `${r.hpSizeKW} kW`);
   setText('resDesignCond', `At ${r.outdoorTemp}°C outdoor / ${r.indoorTemp}°C indoor`);
 
-  // Breakdown table
-  const tbody = $('breakdownBody');
+  // Data quality chips
+  const dq = r.dataQuality;
+  const chips = [
+    dq.multiGlazeProportion ? 'Glazing %' : null,
+    dq.floorHeight          ? 'Floor height' : null,
+    dq.mechanicalVent       ? 'Mech. vent' : null,
+    dq.habRooms             ? 'Room count' : null,
+    dq.openFireplaces       ? 'Fireplaces' : null
+  ].filter(Boolean);
+
+  const dqEl = $('dataQuality');
+  if (chips.length > 0) {
+    dqEl.innerHTML = `<span class="dq-label">Extra EPC data used:</span> ` +
+      chips.map(c => `<span class="dq-chip">${c}</span>`).join('');
+    show('dataQuality');
+  } else {
+    hide('dataQuality');
+  }
+
   const dT = r.deltaT;
   const c  = r.coefficients;
   const g  = r.geometry;
   const u  = r.uValues;
 
   const rows = [
-    { label: 'Walls',            area: g.netWallArea,      uVal: u.wall,   hlc: c.wall },
-    { label: 'Windows / Glazing',area: g.windowArea,       uVal: u.window, hlc: c.window },
-    { label: 'Roof',             area: g.roofArea,         uVal: u.roof,   hlc: c.roof },
-    { label: 'Ground Floor',     area: g.groundFloorArea,  uVal: u.floor,  hlc: c.floor },
-    { label: 'Thermal Bridging', area: null,               uVal: null,     hlc: c.bridging },
-    { label: 'Ventilation',      area: null,               uVal: null,     hlc: c.ventilation }
+    { label: 'Walls',             area: g.netWallArea,     uVal: u.wall,   hlc: c.wall },
+    { label: 'Windows / Glazing', area: g.windowArea,      uVal: u.window, hlc: c.window },
+    { label: 'Roof',              area: g.roofArea,        uVal: u.roof,   hlc: c.roof },
+    { label: 'Ground Floor',      area: g.groundFloorArea, uVal: u.floor,  hlc: c.floor },
+    { label: 'Thermal Bridging',  area: null,              uVal: null,     hlc: c.bridging },
+    { label: `Ventilation (${r.ach} ACH)`, area: null,     uVal: null,     hlc: c.ventilation }
   ];
 
-  tbody.innerHTML = rows.map((row) => `
+  $('breakdownBody').innerHTML = rows.map(row => `
     <tr>
       <td>${row.label}</td>
       <td class="num">${row.area !== null ? row.area.toFixed(1) : '—'}</td>
@@ -274,8 +269,7 @@ function renderResults(r) {
   `).join('') + `
     <tr>
       <td><strong>Total</strong></td>
-      <td class="num">—</td>
-      <td class="num">—</td>
+      <td class="num">—</td><td class="num">—</td>
       <td class="num"><strong>${c.total.toFixed(0)}</strong></td>
       <td class="num"><strong>${(r.heatLossKW * 1000).toFixed(0)}</strong></td>
     </tr>

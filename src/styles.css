@@ -498,3 +498,16 @@ body {
 }
 .status-badge.configured  { background: var(--green-50); color: var(--green-600); }
 .status-badge.unconfigured{ background: var(--amber-50); color: var(--amber-600); }
+
+/* ── Data quality chips ── */
+.dq-label { font-weight: 600; margin-right: 6px; }
+.dq-chip {
+  display: inline-block;
+  background: var(--purple-200);
+  color: var(--purple-900);
+  border-radius: 20px;
+  padding: 2px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 2px 3px 2px 0;
+}
