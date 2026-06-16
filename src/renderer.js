@@ -112,7 +112,13 @@ async function doSearch() {
 
   try {
     const data = await electronAPI.fetchEPC({ postcode, email: config.email, apiKey: config.apiKey });
-    console.log('EPC raw first record:', JSON.stringify(data._raw, null, 2));
+    const dbg = data._debugInfo || {};
+    console.log('=== EPC DEBUG ===');
+    console.log('Cert number tried:', dbg.certNumber);
+    console.log('Detail fetch failed?', dbg.detailFailed, '| status:', dbg.detailStatus);
+    console.log('Top-level keys returned:', (dbg.topLevelKeys || []).join(', ') || '(none)');
+    console.log('Keys inside .data:', dbg.dataKeys ? dbg.dataKeys.join(', ') : '(no .data wrapper)');
+    console.log('Full raw detail:', JSON.stringify(data._raw, null, 2));
     const rows = data.rows || [];
 
     if (rows.length === 0) {

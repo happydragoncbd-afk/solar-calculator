@@ -249,7 +249,8 @@ function epcRequest(options, auth, redirects = 0) {
 ipcMain.handle('fetch-epc', async (event, { postcode }) => {
   const clean = postcode.replace(/\s+/g, '').toUpperCase();
 
-  const apiGet = (urlPath) => new Promise((resolve, reject) => {
+  // Returns { body: parsedJSON, status: httpStatus } so callers can see what actually happened
+  const apiGetRaw = (urlPath) => new Promise((resolve, reject) => {
     const req = https.request({
       hostname: 'api.get-energy-performance-data.communities.gov.uk',
       path:     urlPath,
@@ -259,15 +260,13 @@ ipcMain.handle('fetch-epc', async (event, { postcode }) => {
       let data = '';
       res.on('data', c => data += c);
       res.on('end', () => {
-        if (res.statusCode === 200) {
-          try { resolve(JSON.parse(data)); } catch { reject(new Error('Invalid JSON')); }
-        } else if (res.statusCode === 404) {
-          resolve(null);
-        } else if (res.statusCode === 401) {
+        if (res.statusCode === 401) {
           reject(new Error('Invalid EPC API token.'));
-        } else {
-          reject(new Error(`EPC API status ${res.statusCode}`));
+          return;
         }
+        let body = null;
+        try { body = JSON.parse(data); } catch (_) { body = data; }
+        resolve({ body, status: res.statusCode });
       });
     });
     req.on('error', reject);
@@ -277,26 +276,45 @@ ipcMain.handle('fetch-epc', async (event, { postcode }) => {
 
   try {
     // Step 1: search by postcode for summary list
-    const searchJson = await apiGet(`/api/domestic/search?postcode=${encodeURIComponent(clean)}&page_size=10`);
-    const summaries = (searchJson && searchJson.data) || [];
+    const searchResult = await apiGetRaw(`/api/domestic/search?postcode=${encodeURIComponent(clean)}&page_size=10`);
+    if (searchResult.status !== 200) return { rows: [], error: `Search failed: HTTP ${searchResult.status}` };
+    const summaries = (searchResult.body && searchResult.body.data) || [];
     if (summaries.length === 0) return { rows: [] };
 
-    // Step 2: fetch full certificate for each result in parallel
+    // Step 2: fetch full certificate for each result — try two endpoint formats
     const details = await Promise.all(
-      summaries.map(s =>
-        apiGet(`/api/domestic/${encodeURIComponent(s.certificateNumber)}`).catch(() => null)
-      )
+      summaries.map(async s => {
+        const cert = encodeURIComponent(s.certificateNumber);
+
+        // Primary: /api/domestic/{rrn}
+        let r = await apiGetRaw(`/api/domestic/${cert}`).catch(() => null);
+        if (r && r.status === 200) return r.body;
+
+        // Fallback: /api/domestic/certificate/{rrn}
+        r = await apiGetRaw(`/api/domestic/certificate/${cert}`).catch(() => null);
+        if (r && r.status === 200) return r.body;
+
+        // Last resort: /api/domestic/property?uprn={uprn}
+        if (s.uprn) {
+          r = await apiGetRaw(`/api/domestic/property?uprn=${encodeURIComponent(s.uprn)}`).catch(() => null);
+          if (r && r.status === 200) return r.body;
+        }
+
+        return { _failedStatus: r ? r.status : 'error', _certNumber: s.certificateNumber };
+      })
     );
 
-    // Debug: write merged first record so field names can be inspected
+    // Debug: write raw API response so field names can be inspected
     try {
       const debugPath = path.join(app.getPath('userData'), 'epc-raw-debug.json');
       fs.writeFileSync(debugPath, JSON.stringify({ summary: summaries[0], detail: details[0] }, null, 2));
     } catch (_) {}
 
-    // Merge: detail fields take priority; fall back to summary for address/rating
+    // Merge: detail fields take priority; fall back to summary for address/rating.
+    // The new API may wrap certificate data inside a 'data' envelope — unwrap if so.
     const rows = summaries.map((s, i) => {
-      const d = details[i] || {};
+      const raw = details[i] || {};
+      const d = (raw.data && typeof raw.data === 'object' && !Array.isArray(raw.data)) ? raw.data : raw;
       return {
         'address1':                  s.addressLine1 || '',
         'address2':                  s.addressLine2 || '',
@@ -307,26 +325,37 @@ ipcMain.handle('fetch-epc', async (event, { postcode }) => {
         'current-energy-rating':     s.currentEnergyEfficiencyBand || d.currentEnergyEfficiencyBand || '',
         'current-energy-efficiency': String(d.currentEnergyEfficiency ?? d.currentEnergyEfficiencyRating ?? ''),
         'potential-energy-rating':   d.potentialEnergyEfficiencyBand || '',
-        'total-floor-area':          String(d.totalFloorArea ?? ''),
-        'property-type':             d.propertyType || '',
+        'total-floor-area':          String(d.totalFloorArea ?? d.floorArea ?? ''),
+        'property-type':             d.propertyType || d.dwellingType || '',
         'built-form':                d.builtForm || '',
-        'construction-age-band':     d.constructionAgeBand || '',
+        'construction-age-band':     d.constructionAgeBand || d.constructionYear || '',
         'number-habitable-rooms':    String(d.numberHabitableRooms ?? d.habitableRooms ?? ''),
-        'flat-storey-count':         String(d.flatStoreyCount ?? ''),
-        'floor-height':              String(d.floorHeight ?? ''),
-        'mechanical-ventilation':    d.mechanicalVentilation || '',
-        'number-open-fireplaces':    String(d.numberOpenFireplaces ?? ''),
-        'multi-glaze-proportion':    String(d.multiGlazeProportion ?? ''),
-        'glazed-type':               d.glazedType || '',
-        'glazed-area':               d.glazedArea || '',
-        'walls-description':         d.wallsDescription || '',
-        'roof-description':          d.roofDescription || '',
-        'floor-description':         d.floorDescription || '',
-        'windows-description':       d.windowsDescription || '',
+        'flat-storey-count':         String(d.flatStoreyCount ?? d.storeyCount ?? ''),
+        'floor-height':              String(d.floorHeight ?? d.averageFloorHeight ?? ''),
+        'mechanical-ventilation':    d.mechanicalVentilation || d.ventilationType || '',
+        'number-open-fireplaces':    String(d.numberOpenFireplaces ?? d.openFireplacesCount ?? ''),
+        'multi-glaze-proportion':    String(d.multiGlazeProportion ?? d.multipleGlazedProportion ?? ''),
+        'glazed-type':               d.glazedType || d.windowGlazingType || '',
+        'glazed-area':               d.glazedArea || d.windowGlazedArea || '',
+        'walls-description':         d.wallsDescription || d.wallDescription || '',
+        'roof-description':          d.roofDescription || d.roofInsulationDescription || '',
+        'floor-description':         d.floorDescription || d.floorInsulationDescription || '',
+        'windows-description':       d.windowsDescription || d.windowDescription || '',
       };
     });
 
-    return { rows, _raw: details[0] };
+    const firstDetail = details[0] || {};
+    return {
+      rows,
+      _raw: firstDetail,
+      _debugInfo: {
+        detailFailed:  !!firstDetail._failedStatus,
+        detailStatus:  firstDetail._failedStatus || 'ok',
+        certNumber:    summaries[0]?.certificateNumber,
+        topLevelKeys:  Object.keys(firstDetail).slice(0, 30),
+        dataKeys:      firstDetail.data ? Object.keys(firstDetail.data).slice(0, 30) : null,
+      }
+    };
   } catch (e) {
     return { rows: [], error: e.message };
   }
