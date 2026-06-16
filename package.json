@@ -18,6 +18,7 @@
       "main.js",
       "preload.js",
       "index.html",
+      "login.html",
       "src/**/*",
       "assets/**/*",
       "!node_modules/**/*"

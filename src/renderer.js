@@ -21,12 +21,21 @@ function setAlert(id, type, message) {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
-  config = await electronAPI.getConfig();
-  updateSettingsStatus();
-  if (config.email && config.apiKey) {
-    $('settingsCard').classList.add('collapsed');
-    $('settingsToggle').textContent = 'Edit';
+  // Show session info in header
+  const session = await electronAPI.getSession();
+  if (session) {
+    $('userName').textContent = session.name;
+    const exp = new Date(session.expiryDate);
+    $('userExpiry').textContent = session.daysLeft <= 30
+      ? `⚠ Expires in ${session.daysLeft}d`
+      : `Licence valid to ${exp.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}`;
   }
+
+  config = await electronAPI.getConfig();
+  // API key is embedded — always configured
+  $('settingsCard').classList.add('collapsed');
+  $('settingsToggle').textContent = 'Edit';
+  updateSettingsStatus();
   bindEvents();
 }
 
@@ -52,6 +61,8 @@ function bindEvents() {
   if (config.apiKey) $('apiKey').value  = config.apiKey;
 
   $('saveSettingsBtn').addEventListener('click', saveSettings);
+  $('logoutBtn').addEventListener('click', () => electronAPI.logout());
+  electronAPI.onLogout(() => electronAPI.logout());
   $('searchBtn').addEventListener('click', doSearch);
   $('propertySelect').addEventListener('change', onPropertyChange);
   $('calcBtn').addEventListener('click', doCalculate);

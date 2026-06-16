@@ -94,6 +94,38 @@ body {
   opacity: 0.9;
 }
 
+.header-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.9);
+}
+
+.user-expiry {
+  font-size: 11px;
+  color: rgba(255,255,255,0.55);
+}
+
+.logout-btn {
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.25);
+  color: #fff;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  -webkit-app-region: no-drag;
+}
+
+.logout-btn:hover { background: rgba(255,255,255,0.22); }
+
 /* ── Main layout ── */
 .app-main {
   max-width: 860px;

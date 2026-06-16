@@ -1,57 +1,143 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
 
-let mainWindow;
-const configPath = path.join(app.getPath('userData'), 'aira-config.json');
+// ── Embedded EPC API credentials (prototype) ──────────────────────────────────
+const EPC_EMAIL   = 'happydragon.cbd@gmail.com';
+const EPC_API_KEY = 'dNqSi3seHCeTsdh2SH84UQ3RB4y8fLfeibK1UjRLVjihXyseykw2B9NYuOcMxZYO';
 
-function loadDotEnv() {
-  const envPath = path.join(__dirname, '.env');
-  if (!fs.existsSync(envPath)) return {};
-  const result = {};
-  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
-    const m = line.match(/^([^#=\s][^=]*)=(.*)$/);
-    if (m) result[m[1].trim()] = m[2].trim();
+// ── Session state ─────────────────────────────────────────────────────────────
+let currentSession = null;
+let loginWindow    = null;
+let mainWindow     = null;
+
+// ── User management ───────────────────────────────────────────────────────────
+const DEFAULT_USERS = [
+  {
+    username:   'admin',
+    password:   'Aira2025!',
+    name:       'Administrator',
+    expiryDate: '2026-12-31'
   }
-  return result;
+];
+
+function getUsersPath() {
+  return path.join(app.getPath('userData'), 'users.json');
 }
+
+function getUsers() {
+  try {
+    const p = getUsersPath();
+    if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf8'));
+  } catch (e) {}
+  return DEFAULT_USERS;
+}
+
+function saveUsers(users) {
+  fs.writeFileSync(getUsersPath(), JSON.stringify(users, null, 2));
+}
+
+// Initialise users file on first run
+function initUsers() {
+  if (!fs.existsSync(getUsersPath())) saveUsers(DEFAULT_USERS);
+}
+
+// ── Config (non-credential settings) ─────────────────────────────────────────
+const configPath = path.join(app.getPath('userData'), 'aira-config.json');
 
 function loadConfig() {
   try {
-    if (fs.existsSync(configPath)) {
-      return JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    }
+    if (fs.existsSync(configPath)) return JSON.parse(fs.readFileSync(configPath, 'utf8'));
   } catch (e) {}
   return {};
 }
 
-function saveConfig(config) {
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+function saveConfig(cfg) {
+  fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
 }
 
-function createWindow() {
+// ── Windows ───────────────────────────────────────────────────────────────────
+function createLoginWindow() {
+  loginWindow = new BrowserWindow({
+    width: 420,
+    height: 600,
+    resizable: false,
+    center: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    },
+    title: 'Aira Heat Loss Calculator — Login',
+    backgroundColor: '#3B0764',
+    autoHideMenuBar: true
+  });
+  loginWindow.loadFile('login.html');
+  loginWindow.on('closed', () => { loginWindow = null; });
+}
+
+function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 900,
     minWidth: 800,
     minHeight: 600,
+    center: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false
     },
     title: 'Aira Heat Loss Calculator',
-    backgroundColor: '#3B0764'
+    backgroundColor: '#3B0764',
+    autoHideMenuBar: true
   });
 
+  // App menu with Settings stub
+  const menu = Menu.buildFromTemplate([
+    {
+      label: 'File',
+      submenu: [
+        { label: 'Logout', click: () => mainWindow.webContents.send('logout') },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    },
+    {
+      label: 'Settings',
+      submenu: [
+        {
+          label: 'Manage Users…',
+          click: () => {
+            const p = getUsersPath();
+            if (!fs.existsSync(p)) saveUsers(getUsers());
+            shell.openPath(p);
+          }
+        },
+        { type: 'separator' },
+        { label: 'API Keys (coming soon)', enabled: false }
+      ]
+    },
+    {
+      label: 'Help',
+      submenu: [
+        { label: 'Visit Aira', click: () => shell.openExternal('https://aira.com') }
+      ]
+    }
+  ]);
+  Menu.setApplicationMenu(menu);
+
   mainWindow.loadFile('index.html');
+  mainWindow.on('closed', () => { mainWindow = null; });
 }
 
+// ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
-  createWindow();
+  initUsers();
+  createLoginWindow();
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (!loginWindow && !mainWindow) createLoginWindow();
   });
 });
 
@@ -59,68 +145,93 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
+// ── IPC — Auth ────────────────────────────────────────────────────────────────
+ipcMain.handle('login', (event, { username, password }) => {
+  const users = getUsers();
+  const user  = users.find(
+    u => u.username.toLowerCase() === username.toLowerCase().trim() &&
+         u.password === password
+  );
+
+  if (!user) return { success: false, error: 'Invalid username or password.' };
+
+  const expiry  = new Date(user.expiryDate + 'T23:59:59');
+  const now     = new Date();
+
+  if (now > expiry) {
+    const over = Math.ceil((now - expiry) / 86400000);
+    return {
+      success: false,
+      error: `Licence expired ${over} day${over !== 1 ? 's' : ''} ago. Please contact Aira to renew.`
+    };
+  }
+
+  const daysLeft = Math.ceil((expiry - now) / 86400000);
+  currentSession = { username: user.username, name: user.name || user.username, expiryDate: user.expiryDate, daysLeft };
+
+  // Open main window after short delay so success animation can play
+  setTimeout(() => {
+    createMainWindow();
+    if (loginWindow) loginWindow.close();
+  }, 600);
+
+  return { success: true, ...currentSession };
+});
+
+ipcMain.handle('get-session', () => currentSession);
+
+ipcMain.handle('logout', () => {
+  currentSession = null;
+  createLoginWindow();
+  if (mainWindow) mainWindow.close();
+});
+
+// ── IPC — Config ──────────────────────────────────────────────────────────────
 ipcMain.handle('get-config', () => {
   const saved = loadConfig();
-  const env = loadDotEnv();
-  // .env provides defaults; saved user config always takes precedence
   return {
-    email:  saved.email  || env.EPC_EMAIL   || '',
-    apiKey: saved.apiKey || env.EPC_API_KEY || '',
+    // Embedded credentials — no user input required
+    email:  EPC_EMAIL,
+    apiKey: EPC_API_KEY,
     ...saved
   };
 });
 
-ipcMain.handle('save-config', (event, config) => {
-  saveConfig(config);
-  return true;
-});
+ipcMain.handle('save-config', (event, cfg) => { saveConfig(cfg); return true; });
 
-ipcMain.handle('open-external', (event, url) => {
-  shell.openExternal(url);
-});
+ipcMain.handle('open-external', (event, url) => shell.openExternal(url));
 
+// ── IPC — EPC API ─────────────────────────────────────────────────────────────
 ipcMain.handle('fetch-epc', async (event, { postcode, email, apiKey }) => {
   return new Promise((resolve, reject) => {
     const clean = postcode.replace(/\s+/g, '').toUpperCase();
-    const auth = Buffer.from(`${email}:${apiKey}`).toString('base64');
+    const auth  = Buffer.from(`${email}:${apiKey}`).toString('base64');
 
     const options = {
       hostname: 'epc.opendatacommunities.org',
-      path: `/api/v1/domestic/search?postcode=${encodeURIComponent(clean)}&size=10`,
-      method: 'GET',
-      headers: {
-        Authorization: `Basic ${auth}`,
-        Accept: 'application/json'
-      }
+      path:     `/api/v1/domestic/search?postcode=${encodeURIComponent(clean)}&size=10`,
+      method:   'GET',
+      headers:  { Authorization: `Basic ${auth}`, Accept: 'application/json' }
     };
 
     const req = https.request(options, (res) => {
       let data = '';
-      res.on('data', (chunk) => (data += chunk));
+      res.on('data', c => data += c);
       res.on('end', () => {
         if (res.statusCode === 200) {
-          try {
-            resolve(JSON.parse(data));
-          } catch {
-            reject(new Error('Invalid response from EPC API'));
-          }
+          try { resolve(JSON.parse(data)); } catch { reject(new Error('Invalid EPC API response')); }
         } else if (res.statusCode === 401) {
-          reject(new Error('Invalid API credentials — check your email and API key.'));
-        } else if (res.statusCode === 400) {
-          reject(new Error('Invalid postcode format.'));
+          reject(new Error('Invalid API credentials.'));
         } else if (res.statusCode === 404) {
           resolve({ rows: [] });
         } else {
-          reject(new Error(`EPC API returned status ${res.statusCode}`));
+          reject(new Error(`EPC API status ${res.statusCode}`));
         }
       });
     });
 
-    req.on('error', (err) => reject(new Error(`Network error: ${err.message}`)));
-    req.setTimeout(15000, () => {
-      req.destroy();
-      reject(new Error('Request timed out — check your internet connection.'));
-    });
+    req.on('error', err => reject(new Error(`Network error: ${err.message}`)));
+    req.setTimeout(15000, () => { req.destroy(); reject(new Error('Request timed out.')); });
     req.end();
   });
 });

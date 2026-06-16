@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>Aira Heat Loss Calculator — Login</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(160deg, #1E0A3C 0%, #3B0764 50%, #4C1D95 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 20px;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.4);
+      overflow: hidden;
+    }
+
+    /* Purple logo header band */
+    .card-top {
+      background: linear-gradient(135deg, #3B0764, #6D28D9);
+      padding: 36px 32px 32px;
+      text-align: center;
+    }
+
+    .logo-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .logo-icon {
+      width: 44px;
+      height: 44px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .logo-name {
+      font-size: 28px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+
+    .card-top h2 {
+      font-size: 14px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.75);
+      letter-spacing: 0.5px;
+    }
+
+    /* Form area */
+    .card-body {
+      padding: 32px;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      border: 1.5px solid #E5E7EB;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 15px;
+      color: #111827;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      background: #F9FAFB;
+    }
+
+    input:focus {
+      border-color: #6D28D9;
+      background: #fff;
+      box-shadow: 0 0 0 3px rgba(109,40,217,0.12);
+    }
+
+    .btn-login {
+      width: 100%;
+      padding: 13px;
+      background: linear-gradient(135deg, #4C1D95, #6D28D9);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+
+    .btn-login:hover  { opacity: 0.92; }
+    .btn-login:active { transform: scale(0.99); }
+    .btn-login:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2.5px solid rgba(255,255,255,0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+
+    .btn-login.loading .spinner  { display: block; }
+    .btn-login.loading .btn-text { display: none; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Error / success messages */
+    .message {
+      border-radius: 8px;
+      padding: 11px 14px;
+      font-size: 13px;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .message.error   { background: #FEF2F2; color: #DC2626; border: 1px solid #FECACA; }
+    .message.success { background: #F0FDF4; color: #16A34A; border: 1px solid #BBF7D0; }
+    .message.visible { display: block; }
+
+    /* Expiry warning */
+    .expiry-warning {
+      font-size: 12px;
+      color: #D97706;
+      text-align: center;
+      margin-top: 12px;
+      display: none;
+    }
+
+    /* Footer */
+    .card-footer {
+      padding: 0 32px 24px;
+      text-align: center;
+      font-size: 12px;
+      color: #9CA3AF;
+    }
+
+    .card-footer a {
+      color: #6D28D9;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+
+  <div class="card-top">
+    <div class="logo-wrap">
+      <div class="logo-icon">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <path d="M14 3L23 22H5L14 3Z" fill="white" opacity=".9"/>
+          <circle cx="14" cy="16" r="3" fill="#4C1D95"/>
+        </svg>
+      </div>
+      <span class="logo-name">aira</span>
+    </div>
+    <h2>HEAT LOSS CALCULATOR</h2>
+  </div>
+
+  <div class="card-body">
+    <div class="message" id="message"></div>
+
+    <div class="form-group">
+      <label for="username">Username</label>
+      <input type="text" id="username" placeholder="Enter username" autocomplete="username" autofocus>
+    </div>
+
+    <div class="form-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" placeholder="Enter password" autocomplete="current-password">
+    </div>
+
+    <button class="btn-login" id="loginBtn">
+      <span class="btn-text">Sign In</span>
+      <span class="spinner"></span>
+    </button>
+
+    <div class="expiry-warning" id="expiryWarning"></div>
+  </div>
+
+  <div class="card-footer">
+    Licensed software &copy; 2025 Aira &mdash;
+    <a href="#" id="helpLink">aira.com</a>
+  </div>
+
+</div>
+
+<script>
+  const btn       = document.getElementById('loginBtn');
+  const msgEl     = document.getElementById('message');
+  const warnEl    = document.getElementById('expiryWarning');
+  const usernameEl = document.getElementById('username');
+  const passwordEl = document.getElementById('password');
+
+  function showMessage(text, type) {
+    msgEl.textContent = text;
+    msgEl.className = `message ${type} visible`;
+  }
+
+  async function doLogin() {
+    const username = usernameEl.value.trim();
+    const password = passwordEl.value;
+
+    if (!username || !password) {
+      showMessage('Please enter your username and password.', 'error');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.classList.add('loading');
+    msgEl.className = 'message';
+
+    try {
+      const result = await window.electronAPI.login({ username, password });
+
+      if (result.success) {
+        showMessage(`Welcome, ${result.name}!`, 'success');
+
+        if (result.daysLeft <= 30) {
+          warnEl.textContent = `⚠ Licence expires in ${result.daysLeft} day${result.daysLeft !== 1 ? 's' : ''}`;
+          warnEl.style.display = 'block';
+        }
+        // Main window opens automatically after 600ms (handled in main.js)
+      } else {
+        showMessage(result.error, 'error');
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        passwordEl.value = '';
+        passwordEl.focus();
+      }
+    } catch (e) {
+      showMessage('Unexpected error. Please restart the application.', 'error');
+      btn.disabled = false;
+      btn.classList.remove('loading');
+    }
+  }
+
+  btn.addEventListener('click', doLogin);
+  [usernameEl, passwordEl].forEach(el =>
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); })
+  );
+
+  document.getElementById('helpLink').addEventListener('click', e => {
+    e.preventDefault();
+    window.electronAPI.openExternal('https://aira.com');
+  });
+</script>
+</body>
+</html>
