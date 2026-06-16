@@ -6,6 +6,17 @@ const https = require('https');
 let mainWindow;
 const configPath = path.join(app.getPath('userData'), 'aira-config.json');
 
+function loadDotEnv() {
+  const envPath = path.join(__dirname, '.env');
+  if (!fs.existsSync(envPath)) return {};
+  const result = {};
+  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
+    const m = line.match(/^([^#=\s][^=]*)=(.*)$/);
+    if (m) result[m[1].trim()] = m[2].trim();
+  }
+  return result;
+}
+
 function loadConfig() {
   try {
     if (fs.existsSync(configPath)) {
@@ -48,7 +59,16 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-ipcMain.handle('get-config', () => loadConfig());
+ipcMain.handle('get-config', () => {
+  const saved = loadConfig();
+  const env = loadDotEnv();
+  // .env provides defaults; saved user config always takes precedence
+  return {
+    email:  saved.email  || env.EPC_EMAIL   || '',
+    apiKey: saved.apiKey || env.EPC_API_KEY || '',
+    ...saved
+  };
+});
 
 ipcMain.handle('save-config', (event, config) => {
   saveConfig(config);
