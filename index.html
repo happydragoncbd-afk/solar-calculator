@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>Aira Heat Loss Calculator</title>
+  <link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header class="app-header">
+  <div class="logo-mark">
+    <div class="logo-symbol">
+      <!-- Replace src with actual Aira logo if available -->
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="13" cy="13" r="13" fill="#4C1D95"/>
+        <path d="M13 5 L19 19 H7 L13 5Z" fill="white" opacity="0.9"/>
+        <circle cx="13" cy="14" r="2.5" fill="#4C1D95"/>
+      </svg>
+    </div>
+    <span class="logo-text">aira</span>
+  </div>
+  <div class="header-divider"></div>
+  <span class="header-title">Heat Loss Calculator</span>
+</header>
+
+<!-- ── Main ── -->
+<main class="app-main">
+
+  <!-- Step 1: API Settings -->
+  <div class="card" id="settingsCard">
+    <div class="card-header">
+      <span class="step-badge">1</span>
+      <h2>EPC API Settings</h2>
+      <span class="status-badge unconfigured" id="settingsStatus">Not configured</span>
+      <button class="collapse-btn" id="settingsToggle">Show</button>
+    </div>
+    <div class="card-body" id="settingsBody">
+      <p class="hint" style="margin-bottom:16px">
+        Register for a free API key at
+        <a href="#" id="epcRegisterLink">epc.opendatacommunities.org</a>
+        then enter your credentials below.
+      </p>
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="apiEmail">Registered Email</label>
+          <input type="email" id="apiEmail" placeholder="you@example.com" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="apiKey">API Key</label>
+          <input type="password" id="apiKey" placeholder="Paste your API key" autocomplete="off">
+        </div>
+      </div>
+      <div style="margin-top:16px; display:flex; gap:10px; align-items:center">
+        <button class="btn btn-primary" id="saveSettingsBtn">Save Credentials</button>
+        <span id="settingsSaved" class="alert alert-success hidden" style="margin:0; padding:8px 14px;">Saved!</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2: Postcode Search -->
+  <div class="card" id="searchCard">
+    <div class="card-header">
+      <span class="step-badge">2</span>
+      <h2>Search by Postcode</h2>
+    </div>
+    <div class="card-body">
+      <div class="search-row">
+        <input type="text" id="postcodeInput" placeholder="e.g. SW1A 1AA" maxlength="8" autocomplete="off">
+        <button class="btn btn-primary btn-lg" id="searchBtn">
+          <span id="searchBtnText">Search EPC</span>
+          <span class="spinner hidden" id="searchSpinner"></span>
+        </button>
+      </div>
+      <div class="alert hidden" id="searchAlert"></div>
+    </div>
+  </div>
+
+  <!-- Step 3: EPC Results -->
+  <div class="card hidden" id="epcCard">
+    <div class="card-header">
+      <span class="step-badge">3</span>
+      <h2>EPC Data</h2>
+      <span id="epcCount" style="font-size:13px; color:var(--gray-400)"></span>
+    </div>
+    <div class="card-body">
+      <div class="form-group property-select-wrap" id="propertySelectWrap">
+        <label for="propertySelect">Select Property</label>
+        <select id="propertySelect"></select>
+      </div>
+
+      <div id="epcSummary">
+        <div class="epc-grid" id="epcStatGrid"></div>
+        <div class="epc-detail-row" id="epcDetailRow"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 4: Calculation Parameters -->
+  <div class="card hidden" id="calcCard">
+    <div class="card-header">
+      <span class="step-badge">4</span>
+      <h2>Calculation Parameters</h2>
+    </div>
+    <div class="card-body">
+      <div class="calc-params">
+        <div class="form-group">
+          <label for="outdoorTemp">Design Outdoor Temp (°C)</label>
+          <input type="number" id="outdoorTemp" value="-3" min="-15" max="10" step="1">
+          <span class="hint">UK default: −3°C &nbsp;|&nbsp; Scotland: −7°C</span>
+        </div>
+        <div class="form-group">
+          <label for="indoorTemp">Indoor Target Temp (°C)</label>
+          <input type="number" id="indoorTemp" value="21" min="15" max="25" step="1">
+        </div>
+        <div class="form-group">
+          <label for="achInput">Air Changes / Hour (ACH)</label>
+          <input type="number" id="achInput" value="0.5" min="0.1" max="3" step="0.1">
+          <span class="hint">Typical: 0.5 &nbsp;|&nbsp; Draughty: 1.0</span>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-lg" id="calcBtn">Calculate Heat Loss</button>
+    </div>
+  </div>
+
+  <!-- Step 5: Results -->
+  <div class="card hidden" id="resultsCard">
+    <div class="card-header">
+      <span class="step-badge">5</span>
+      <h2>Heat Loss Results</h2>
+    </div>
+    <div class="card-body">
+      <div class="results-hero">
+        <div class="result-box result-box-primary">
+          <div class="result-value" id="resHeatLoss">--</div>
+          <div class="result-label">Design Heat Loss</div>
+          <div style="font-size:12px; opacity:0.7; margin-top:4px" id="resDesignCond"></div>
+        </div>
+        <div class="result-box result-box-secondary">
+          <div class="result-value" id="resHPSize" style="color:var(--purple-900)">--</div>
+          <div class="result-label" style="color:var(--purple-900); opacity:0.75">Recommended Heat Pump</div>
+          <div style="font-size:12px; color:var(--gray-600); margin-top:4px">Includes 20% design margin</div>
+        </div>
+      </div>
+
+      <div class="breakdown-title">Heat Loss Breakdown</div>
+      <table class="breakdown-table">
+        <thead>
+          <tr>
+            <th>Element</th>
+            <th class="num">Area (m²)</th>
+            <th class="num">U-Value (W/m²K)</th>
+            <th class="num">HLC (W/K)</th>
+            <th class="num">Design Loss (W)</th>
+          </tr>
+        </thead>
+        <tbody id="breakdownBody"></tbody>
+      </table>
+
+      <div class="cta-block">
+        <h3>Ready to upgrade to a heat pump?</h3>
+        <p>Get a no-obligation quote from Aira — the UK's leading heat pump installer.</p>
+        <button class="btn-cta" id="ctaBtn">Get a Free Quote from Aira</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script src="src/heatloss.js"></script>
+<script src="src/renderer.js"></script>
+</body>
+</html>
