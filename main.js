@@ -129,6 +129,10 @@ function createMainWindow() {
   Menu.setApplicationMenu(menu);
 
   mainWindow.loadFile('index.html');
+  mainWindow.webContents.on('before-input-event', (_e, input) => {
+    if (input.type === 'keyDown' && (input.key === 'F12' || (input.control && input.shift && input.key === 'I')))
+      mainWindow.webContents.toggleDevTools();
+  });
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
@@ -264,6 +268,11 @@ ipcMain.handle('fetch-epc', async (event, { postcode }) => {
         }
         try {
           const json = JSON.parse(data);
+          // Write raw first record to file so field names can be confirmed
+          try {
+            const debugPath = path.join(app.getPath('userData'), 'epc-raw-debug.json');
+            fs.writeFileSync(debugPath, JSON.stringify(json.data && json.data[0], null, 2));
+          } catch (_) {}
           // Map new MHCLG API camelCase fields to kebab-case names the heat loss engine expects
           const rows = (json.data || []).map(r => ({
             'address1':                  r.addressLine1 || '',
@@ -292,7 +301,7 @@ ipcMain.handle('fetch-epc', async (event, { postcode }) => {
             'floor-description':         r.floorDescription || r.floorEnvDescription || '',
             'windows-description':       r.windowsDescription || r.windowsEnvDescription || '',
           }));
-          resolve({ rows });
+          resolve({ rows, _raw: json.data && json.data[0] });
         } catch { resolve({ rows: [], error: 'Invalid EPC API response' }); }
       });
     });

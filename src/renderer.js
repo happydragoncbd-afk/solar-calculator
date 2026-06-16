@@ -112,6 +112,7 @@ async function doSearch() {
 
   try {
     const data = await electronAPI.fetchEPC({ postcode, email: config.email, apiKey: config.apiKey });
+    console.log('EPC raw first record:', JSON.stringify(data._raw, null, 2));
     const rows = data.rows || [];
 
     if (rows.length === 0) {
