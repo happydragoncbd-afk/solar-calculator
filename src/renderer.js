@@ -65,11 +65,20 @@ function bindEvents() {
   electronAPI.onLogout(() => electronAPI.logout());
   $('searchBtn').addEventListener('click', doSearch);
   $('propertySelect').addEventListener('change', onPropertyChange);
+  $('manualAgeBand').addEventListener('change', updateACH);
   $('calcBtn').addEventListener('click', doCalculate);
   $('ctaBtn').addEventListener('click', () => electronAPI.openExternal('https://aira.com'));
   $('epcRegisterLink').addEventListener('click', (e) => {
     e.preventDefault();
-    electronAPI.openExternal('https://epc.opendatacommunities.org/');
+    electronAPI.openExternal('https://find-energy-certificate.service.gov.uk/');
+  });
+  $('epcLookupLink').addEventListener('click', (e) => {
+    e.preventDefault();
+    const pc = $('postcodeInput').value.trim();
+    const url = pc
+      ? `https://find-energy-certificate.service.gov.uk/find-a-certificate/search-by-postcode?postcode=${encodeURIComponent(pc)}`
+      : 'https://find-energy-certificate.service.gov.uk/';
+    electronAPI.openExternal(url);
   });
   $('postcodeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
 }
@@ -160,18 +169,46 @@ function onPropertyChange() {
   const idx = parseInt($('propertySelect').value) || 0;
   selectedRecord = epcRecords[idx];
   renderEPCSummary(selectedRecord);
-
-  // Auto-calculate ACH from age band and populate the field
-  const autoACH = HeatLoss.calcBaselineACH(
-    selectedRecord['construction-age-band'],
-    selectedRecord['mechanical-ventilation'],
-    selectedRecord['number-open-fireplaces']
-  );
-  $('achInput').value = autoACH.toFixed(2);
-  $('achHint').textContent = `Auto-estimated from ${formatAgeBand(selectedRecord['construction-age-band'])} age band — adjust if known`;
+  populateManualInputs(selectedRecord);
 
   show('calcCard');
   hide('resultsCard');
+}
+
+function populateManualInputs(r) {
+  // Pre-fill from EPC data where available
+  $('manualFloorArea').value    = r['total-floor-area'] || '';
+  $('manualPropertyType').value = r['property-type']    || '';
+  $('manualBuiltForm').value    = r['built-form']        || '';
+
+  // Match age band string to dropdown option
+  const ageBandRaw = r['construction-age-band'] || '';
+  let ageBandVal = '';
+  if (ageBandRaw) {
+    const m = ageBandRaw.match(/(\d{4})[-–](\d{4})/);
+    if (m) ageBandVal = `${m[1]}-${m[2]}`;
+    else if (/before\s*1900|pre\s*1900/i.test(ageBandRaw)) ageBandVal = 'before 1900';
+    else if (/2012/i.test(ageBandRaw)) ageBandVal = '2012 onwards';
+  }
+  $('manualAgeBand').value = ageBandVal;
+
+  // Show hint if key fields are missing
+  const missing = !r['total-floor-area'] || !r['property-type'];
+  $('manualHint').style.display = missing ? 'block' : 'none';
+
+  // Recalculate ACH using the (possibly updated) age band
+  updateACH();
+}
+
+function updateACH() {
+  const ageBandForACH = $('manualAgeBand').value || selectedRecord?.['construction-age-band'] || '';
+  const mechVent      = selectedRecord?.['mechanical-ventilation']   || '';
+  const fireplaces    = selectedRecord?.['number-open-fireplaces']   || '';
+  const autoACH = HeatLoss.calcBaselineACH(ageBandForACH, mechVent, fireplaces);
+  $('achInput').value = autoACH.toFixed(2);
+  $('achHint').textContent = ageBandForACH
+    ? `Auto-estimated from ${formatAgeBand(ageBandForACH)} age band — adjust if known`
+    : 'Typical: 0.5  |  Draughty: 1.0';
 }
 
 // ── EPC Summary ───────────────────────────────────────────────────────────────
@@ -227,7 +264,24 @@ function formatAgeBand(raw) {
 function doCalculate() {
   if (!selectedRecord) return;
 
-  const result = HeatLoss.calculate(selectedRecord, {
+  const floorArea = $('manualFloorArea').value.trim();
+  if (!floorArea) {
+    $('manualFloorArea').focus();
+    $('manualFloorArea').style.borderColor = 'var(--error, #dc2626)';
+    setTimeout(() => { $('manualFloorArea').style.borderColor = ''; }, 2000);
+    return;
+  }
+
+  // Merge manual inputs over the EPC record (manual wins)
+  const epcData = {
+    ...selectedRecord,
+    'total-floor-area':      floorArea,
+    'property-type':         $('manualPropertyType').value || selectedRecord['property-type'],
+    'built-form':            $('manualBuiltForm').value    || selectedRecord['built-form'],
+    'construction-age-band': $('manualAgeBand').value      || selectedRecord['construction-age-band'],
+  };
+
+  const result = HeatLoss.calculate(epcData, {
     outdoorTemp: parseFloat($('outdoorTemp').value) || -3,
     indoorTemp:  parseFloat($('indoorTemp').value)  || 21,
     ach:         parseFloat($('achInput').value)    || 0.5

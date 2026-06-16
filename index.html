@@ -111,6 +111,62 @@
       <h2>Calculation Parameters</h2>
     </div>
     <div class="card-body">
+
+      <!-- Property details — pre-filled from EPC where available, editable otherwise -->
+      <div class="section-label">Property Details</div>
+      <div id="manualHint" class="alert alert-info" style="margin-bottom:14px; font-size:13px; display:none">
+        Some EPC fields weren't returned by the API. Enter the missing values below from the property's
+        <a href="#" id="epcLookupLink" style="color:inherit; font-weight:600">EPC certificate</a>.
+      </div>
+      <div class="calc-params calc-params-4col" style="margin-bottom:20px">
+        <div class="form-group">
+          <label for="manualFloorArea">Floor Area (m²) <span class="required">*</span></label>
+          <input type="number" id="manualFloorArea" placeholder="e.g. 85" min="20" max="1000" step="1">
+        </div>
+        <div class="form-group">
+          <label for="manualPropertyType">Property Type</label>
+          <select id="manualPropertyType">
+            <option value="">Select…</option>
+            <option value="House">House</option>
+            <option value="Bungalow">Bungalow</option>
+            <option value="Flat">Flat</option>
+            <option value="Maisonette">Maisonette</option>
+            <option value="Park home">Park home</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="manualBuiltForm">Built Form</label>
+          <select id="manualBuiltForm">
+            <option value="">Select…</option>
+            <option value="Detached">Detached</option>
+            <option value="Semi-Detached">Semi-Detached</option>
+            <option value="End-Terrace">End-Terrace</option>
+            <option value="Mid-Terrace">Mid-Terrace</option>
+            <option value="Enclosed End-Terrace">Enclosed End-Terrace</option>
+            <option value="Enclosed Mid-Terrace">Enclosed Mid-Terrace</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="manualAgeBand">Construction Age</label>
+          <select id="manualAgeBand">
+            <option value="">Select…</option>
+            <option value="before 1900">Before 1900</option>
+            <option value="1900-1929">1900–1929</option>
+            <option value="1930-1949">1930–1949</option>
+            <option value="1950-1966">1950–1966</option>
+            <option value="1967-1975">1967–1975</option>
+            <option value="1976-1982">1976–1982</option>
+            <option value="1983-1990">1983–1990</option>
+            <option value="1991-1995">1991–1995</option>
+            <option value="1996-2002">1996–2002</option>
+            <option value="2003-2006">2003–2006</option>
+            <option value="2007-2011">2007–2011</option>
+            <option value="2012 onwards">2012 onwards</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="section-label" style="margin-top:4px">Design Conditions</div>
       <div class="calc-params">
         <div class="form-group">
           <label for="outdoorTemp">Design Outdoor Temp (°C)</label>

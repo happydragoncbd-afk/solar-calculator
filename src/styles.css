@@ -383,6 +383,18 @@ body {
   gap: 16px;
   margin-bottom: 24px;
 }
+.calc-params-4col {
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+}
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--gray-400);
+  margin-bottom: 10px;
+}
+.required { color: #dc2626; }
 
 /* ── Results ── */
 .results-hero {
