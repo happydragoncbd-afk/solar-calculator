@@ -242,13 +242,63 @@ function epcRequest(options, auth, redirects = 0) {
   });
 }
 
-ipcMain.handle('fetch-epc', async (event, { postcode, email, apiKey }) => {
+ipcMain.handle('fetch-epc', async (event, { postcode }) => {
   const clean = postcode.replace(/\s+/g, '').toUpperCase();
-  const auth  = Buffer.from(`${email}:${apiKey}`).toString('base64');
-  return epcRequest({
-    hostname: 'epc.opendatacommunities.org',
-    path:     `/api/v1/domestic/search?postcode=${encodeURIComponent(clean)}&size=10`,
-    method:   'GET',
-    headers:  { Authorization: `Basic ${auth}`, Accept: 'application/json' }
-  }, auth);
+
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname: 'api.get-energy-performance-data.communities.gov.uk',
+      path:     `/api/domestic/search?postcode=${encodeURIComponent(clean)}&page_size=10`,
+      method:   'GET',
+      headers:  { Authorization: `Bearer ${EPC_API_KEY}`, Accept: 'application/json' }
+    }, (res) => {
+      if (res.statusCode === 401) { resolve({ rows: [], error: 'Invalid EPC API token.' }); return; }
+      if (res.statusCode === 404) { resolve({ rows: [] }); return; }
+
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        if (res.statusCode !== 200) {
+          resolve({ rows: [], error: `EPC API returned status ${res.statusCode}` });
+          return;
+        }
+        try {
+          const json = JSON.parse(data);
+          // Map new MHCLG API camelCase fields to kebab-case names the heat loss engine expects
+          const rows = (json.data || []).map(r => ({
+            'address1':                  r.addressLine1 || '',
+            'address2':                  r.addressLine2 || '',
+            'address3':                  [r.addressLine3, r.addressLine4].filter(Boolean).join(', '),
+            'posttown':                  r.postTown || '',
+            'postcode':                  r.postcode || '',
+            'inspection-date':           r.inspectionDate || '',
+            'current-energy-rating':     r.currentEnergyEfficiencyBand || '',
+            'current-energy-efficiency': String(r.currentEnergyEfficiencyRating ?? ''),
+            'potential-energy-rating':   r.potentialEnergyEfficiencyBand || '',
+            'total-floor-area':          String(r.totalFloorArea ?? ''),
+            'property-type':             r.propertyType || '',
+            'built-form':                r.builtForm || '',
+            'construction-age-band':     r.constructionAgeBand || '',
+            'number-habitable-rooms':    String(r.habitableRooms ?? r.numberHabitableRooms ?? ''),
+            'flat-storey-count':         String(r.flatStoreyCount ?? ''),
+            'floor-height':              String(r.floorHeight ?? ''),
+            'mechanical-ventilation':    r.mechanicalVentilation || '',
+            'number-open-fireplaces':    String(r.openFireplacesCount ?? r.numberOpenFireplaces ?? ''),
+            'multi-glaze-proportion':    String(r.multiGlazedProportion ?? r.glazedProportion ?? ''),
+            'glazed-type':               r.glazedType || '',
+            'glazed-area':               r.glazedArea || '',
+            'walls-description':         r.wallsDescription || r.wallsEnvDescription || '',
+            'roof-description':          r.roofDescription || r.roofEnvDescription || '',
+            'floor-description':         r.floorDescription || r.floorEnvDescription || '',
+            'windows-description':       r.windowsDescription || r.windowsEnvDescription || '',
+          }));
+          resolve({ rows });
+        } catch { resolve({ rows: [], error: 'Invalid EPC API response' }); }
+      });
+    });
+
+    req.on('error', err => resolve({ rows: [], error: `Network error: ${err.message}` }));
+    req.setTimeout(15000, () => { req.destroy(); resolve({ rows: [], error: 'Request timed out.' }); });
+    req.end();
+  });
 });
