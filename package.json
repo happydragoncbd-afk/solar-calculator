@@ -41,7 +41,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Aira Heat Loss Calculator"
-    }
+    },
+    "publish": null
   },
   "devDependencies": {
     "electron": "^30.0.0",
