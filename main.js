@@ -202,30 +202,36 @@ ipcMain.handle('save-config', (event, cfg) => { saveConfig(cfg); return true; })
 ipcMain.handle('open-external', (event, url) => shell.openExternal(url));
 
 // ── IPC — EPC API ─────────────────────────────────────────────────────────────
-ipcMain.handle('fetch-epc', async (event, { postcode, email, apiKey }) => {
+function epcRequest(options, auth, redirects = 0) {
   return new Promise((resolve, reject) => {
-    const clean = postcode.replace(/\s+/g, '').toUpperCase();
-    const auth  = Buffer.from(`${email}:${apiKey}`).toString('base64');
-
-    const options = {
-      hostname: 'epc.opendatacommunities.org',
-      path:     `/api/v1/domestic/search?postcode=${encodeURIComponent(clean)}&size=10`,
-      method:   'GET',
-      headers:  { Authorization: `Basic ${auth}`, Accept: 'application/json' }
-    };
+    if (redirects > 5) { reject(new Error('Too many redirects')); return; }
 
     const req = https.request(options, (res) => {
+      // Follow redirects (301/302)
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        const loc = res.headers.location;
+        if (!loc) { reject(new Error('Redirect with no location')); return; }
+        const url = new URL(loc, `https://${options.hostname}`);
+        resolve(epcRequest({
+          hostname: url.hostname,
+          path:     url.pathname + url.search,
+          method:   'GET',
+          headers:  { Authorization: `Basic ${auth}`, Accept: 'application/json' }
+        }, auth, redirects + 1));
+        return;
+      }
+
       let data = '';
       res.on('data', c => data += c);
       res.on('end', () => {
         if (res.statusCode === 200) {
           try { resolve(JSON.parse(data)); } catch { reject(new Error('Invalid EPC API response')); }
         } else if (res.statusCode === 401) {
-          reject(new Error('Invalid API credentials.'));
+          reject(new Error('Invalid API credentials — check your EPC account.'));
         } else if (res.statusCode === 404) {
           resolve({ rows: [] });
         } else {
-          reject(new Error(`EPC API status ${res.statusCode}`));
+          reject(new Error(`EPC API returned status ${res.statusCode}`));
         }
       });
     });
@@ -234,4 +240,15 @@ ipcMain.handle('fetch-epc', async (event, { postcode, email, apiKey }) => {
     req.setTimeout(15000, () => { req.destroy(); reject(new Error('Request timed out.')); });
     req.end();
   });
+}
+
+ipcMain.handle('fetch-epc', async (event, { postcode, email, apiKey }) => {
+  const clean = postcode.replace(/\s+/g, '').toUpperCase();
+  const auth  = Buffer.from(`${email}:${apiKey}`).toString('base64');
+  return epcRequest({
+    hostname: 'epc.opendatacommunities.org',
+    path:     `/api/v1/domestic/search?postcode=${encodeURIComponent(clean)}&size=10`,
+    method:   'GET',
+    headers:  { Authorization: `Basic ${auth}`, Accept: 'application/json' }
+  }, auth);
 });
